@@ -1,0 +1,57 @@
+
+# Python
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+.analytics_token
+
+# SQLite databases
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Frontend
+node_modules/
+dist/
+
+# Editor and OS files
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Secrets and local token files
+**/.analytics_token
+*.token
+
+# Backups and temporary files
+*.backup
+*.bak
+*.tmp
+
+# Local data and test artifacts
+*.sqlite
+*.sqlite3
+.coverage
+htmlcov/# Duplicate and backup folders
+/api-gateway - Copy/
+/frontend - Copy/
+/backup/
+/backup - Copy/
+/docs - Copy/
+/.pytest_cache - Copy/
+# Temporary source backups
+*.backup
+*.backup.*
+# Old implementation snapshots and duplicate Dockerfile
+/services/order-service/app/*_before_*.py
+/services/return-service/Dockerfile.txt
