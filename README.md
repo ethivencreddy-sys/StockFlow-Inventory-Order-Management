@@ -1,4 +1,4 @@
-# StockFlow â€“ Inventory and Order Management System
+# StockFlow – Inventory and Order Management System
 
 StockFlow is a microservices-based inventory and order management platform built using Python, FastAPI, React, SQLite, Docker, RabbitMQ, and Redis.
 
@@ -46,11 +46,13 @@ StockFlow contains 11 independent microservices, an API Gateway, a React fronten
 | Redis | Gateway rate limiting |
 | Order Worker | Background event processing |
 
-RabbitMQ Management UI: http://localhost:15672
+## Application URLs
 
-Frontend: http://localhost:5175
-
-API Gateway: http://localhost:8022
+| Component | URL |
+|---|---|
+| React Frontend | http://localhost:5175 |
+| API Gateway | http://localhost:8022 |
+| RabbitMQ Management UI | http://localhost:15672 |
 
 ## Features
 
@@ -74,30 +76,32 @@ API Gateway: http://localhost:8022
 
 ```text
 inventory-order-management/
-â”œâ”€â”€ api-gateway/
-â”œâ”€â”€ frontend/
-â”œâ”€â”€ services/
-â”‚   â”œâ”€â”€ analytics-service/
-â”‚   â”œâ”€â”€ auth-service/
-â”‚   â”œâ”€â”€ cart-service/
-â”‚   â”œâ”€â”€ coupon-service/
-â”‚   â”œâ”€â”€ inventory-service/
-â”‚   â”œâ”€â”€ notification-service/
-â”‚   â”œâ”€â”€ order-service/
-â”‚   â”œâ”€â”€ payment-service/
-â”‚   â”œâ”€â”€ product-service/
-â”‚   â”œâ”€â”€ return-service/
-â”‚   â””â”€â”€ review-service/
-â”œâ”€â”€ tests/
-â”œâ”€â”€ docs/
-â”œâ”€â”€ docker-compose.yml
-â”œâ”€â”€ requirements.txt
-â”œâ”€â”€ .env.example
-â”œâ”€â”€ .gitignore
-â””â”€â”€ README.md
+├── api-gateway/
+├── frontend/
+├── services/
+│   ├── analytics-service/
+│   ├── auth-service/
+│   ├── cart-service/
+│   ├── coupon-service/
+│   ├── inventory-service/
+│   ├── notification-service/
+│   ├── order-service/
+│   ├── payment-service/
+│   ├── product-service/
+│   ├── return-service/
+│   └── review-service/
+├── tests/
+├── docs/
+├── docker-compose.yml
+├── requirements.txt
+├── .env.example
+├── .gitignore
+└── README.md
 ```
 
 ## Prerequisites
+
+Make sure the following tools are installed:
 
 - Python 3.10 or later
 - Node.js and npm
@@ -106,76 +110,34 @@ inventory-order-management/
 
 ## Environment Configuration
 
-Create a `.env` file in the project root using `.env.example` as a template.
+1. Create a `.env` file in the project root.
+2. Use `.env.example` as the configuration template.
+3. Configure the required secret keys and RabbitMQ credentials before starting the application.
 
-Configure the required secret keys and RabbitMQ credentials before starting the application.
-
-Never commit `.env`, passwords, access tokens, or local database files.
+**Security note:** Never commit `.env` files, passwords, access tokens, or local database files to GitHub.
 
 ## Running the Project
 
-From the project root, start the services using:
+### 1. Start all services
+
+From the project root, run:
 
 ```powershell
 docker compose up -d --build
 ```
 
-Check running containers:
+### 2. Check running containers
 
 ```powershell
 docker compose ps
 ```
 
-Check service logs:
+### 3. View service logs
 
 ```powershell
 docker compose logs -f
 ```
 
-Stop the application:
+### 4. Stop the application
 
 ```powershell
-docker compose down
-```
-
-Persistent RabbitMQ and Redis data are stored in Docker volumes.
-
-## API Documentation
-
-FastAPI services expose Swagger documentation at `/docs` on their respective host ports.
-
-Example:
-
-- Gateway: http://localhost:8022/docs
-- Authentication: http://localhost:8011/docs
-- Products: http://localhost:8012/docs
-- Inventory: http://localhost:8013/docs
-- Orders: http://localhost:8015/docs
-
-## Testing
-
-Activate the Python virtual environment and run:
-
-```powershell
-python -m pytest -v
-```
-
-The current automated test suite contains 24 tests, all of which passed in the latest verification.
-
-## Security
-
-- JWT-based authentication
-- Password hashing
-- Environment-based secret configuration
-- Sensitive files excluded through `.gitignore`
-- Redis-backed API rate limiting
-- RabbitMQ retry and dead-letter handling
-- Service-level health endpoints
-
-## Project Status
-The Docker Compose environment includes 11 microservices, an API Gateway, a React frontend, RabbitMQ, Redis, and an order-processing worker.
-The latest verification completed successfully:
-- 24 automated tests passed.
-- React production build passed.
-- All 16 Docker containers were running.
-- RabbitMQ and Redis reported healthy status.
