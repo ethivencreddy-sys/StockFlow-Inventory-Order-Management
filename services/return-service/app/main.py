@@ -1,21 +1,25 @@
 
 import os
+import logging
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine, get_db
-from app.models import ReturnRequest
+from app.models import ReturnRequest, AuditLog
 from app.schemas import ReturnCreate, ReturnResponse, ReturnStatusUpdate
 from app.security import require_roles
 
 Base.metadata.create_all(bind=engine)
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = FastAPI(
     title="StockFlow Return Service",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 bearer_scheme = HTTPBearer()
@@ -25,6 +29,43 @@ PAYMENT_SERVICE_URL = os.getenv(
     "http://stockflow-payment:8006",
 )
 REQUEST_TIMEOUT = 10.0
+
+
+def record_audit(
+    db: Session,
+    user_id: int | None,
+    action: str,
+    resource_id: int,
+    details: str,
+    request: Request,
+):
+    try:
+        audit = AuditLog(
+            user_id=user_id,
+            action=action,
+            resource_type="return_request",
+            resource_id=str(resource_id),
+            status="success",
+            details=details,
+            ip_address=request.client.host if request.client else None,
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error("Return audit logging failed: %s", type(exc).__name__)
+
+
+def get_user_id(user: dict) -> int:
+    user_id = user.get("user_id", user.get("id", user.get("sub")))
+
+    if user_id is None:
+        raise HTTPException(status_code=401, detail="User ID missing from token")
+
+    try:
+        return int(user_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid user ID in token")
 
 
 @app.get("/health")
@@ -39,18 +80,11 @@ def health():
 )
 def create_return(
     data: ReturnCreate,
+    request: Request,
     user: dict = Depends(require_roles("customer", "administrator")),
     db: Session = Depends(get_db),
 ):
-    user_id = user.get("user_id", user.get("id", user.get("sub")))
-
-    if user_id is None:
-        raise HTTPException(status_code=401, detail="User ID missing from token")
-
-    try:
-        user_id = int(user_id)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=401, detail="Invalid user ID in token")
+    user_id = get_user_id(user)
 
     record = ReturnRequest(
         order_id=data.order_id,
@@ -62,6 +96,16 @@ def create_return(
     db.add(record)
     db.commit()
     db.refresh(record)
+
+    record_audit(
+        db,
+        user_id,
+        "return_created",
+        record.id,
+        f"Created return request for order {record.order_id}",
+        request,
+    )
+
     return record
 
 
@@ -70,15 +114,7 @@ def get_my_returns(
     user: dict = Depends(require_roles("customer", "administrator")),
     db: Session = Depends(get_db),
 ):
-    user_id = user.get("user_id", user.get("id", user.get("sub")))
-
-    if user_id is None:
-        raise HTTPException(status_code=401, detail="User ID missing from token")
-
-    try:
-        user_id = int(user_id)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=401, detail="Invalid user ID in token")
+    user_id = get_user_id(user)
 
     return (
         db.query(ReturnRequest)
@@ -116,12 +152,7 @@ def get_return(
         raise HTTPException(status_code=404, detail="Return request not found")
 
     if user.get("role") != "administrator":
-        user_id = user.get("user_id", user.get("id", user.get("sub")))
-
-        try:
-            user_id = int(user_id)
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=401, detail="Invalid user ID in token")
+        user_id = get_user_id(user)
 
         if record.user_id != user_id:
             raise HTTPException(status_code=403, detail="Access denied")
@@ -133,6 +164,7 @@ def get_return(
 def update_return_status(
     return_id: int,
     data: ReturnStatusUpdate,
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     user: dict = Depends(require_roles("administrator")),
     db: Session = Depends(get_db),
@@ -146,8 +178,13 @@ def update_return_status(
     if record is None:
         raise HTTPException(status_code=404, detail="Return request not found")
 
+    previous_status = record.status
+
     if record.status == "completed" and data.status != "completed":
-        raise HTTPException(status_code=409, detail="A completed return cannot be reopened")
+        raise HTTPException(
+            status_code=409,
+            detail="A completed return cannot be reopened",
+        )
 
     if data.status == "refunded":
         raise HTTPException(
@@ -256,4 +293,14 @@ def update_return_status(
 
     db.commit()
     db.refresh(record)
+
+    record_audit(
+        db,
+        get_user_id(user),
+        "return_status_updated",
+        record.id,
+        f"Return status changed from {previous_status} to {record.status}",
+        request,
+    )
+
     return record

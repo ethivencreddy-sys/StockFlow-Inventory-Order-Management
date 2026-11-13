@@ -42,7 +42,9 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 .coverage
-htmlcov/# Duplicate and backup folders
+htmlcov/
+
+# Duplicate and backup folders
 /api-gateway - Copy/
 /frontend - Copy/
 /backup/
@@ -55,3 +57,4 @@ htmlcov/# Duplicate and backup folders
 # Old implementation snapshots and duplicate Dockerfile
 /services/order-service/app/*_before_*.py
 /services/return-service/Dockerfile.txt
+/backups/

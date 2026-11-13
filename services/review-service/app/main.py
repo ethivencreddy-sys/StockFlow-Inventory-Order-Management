@@ -1,29 +1,55 @@
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+import logging
 
 from app.database import Base, engine, get_db
-from app.models import Review
+from app.models import Review, AuditLog
 from app.schemas import ReviewCreate, ReviewResponse, ReviewUpdate
-from app.security import get_current_user, require_roles
+from app.security import get_current_user
 
 Base.metadata.create_all(bind=engine)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Product Reviews Service",
     description="Create, retrieve, update, and delete product reviews",
-    version="1.0.0",
+    version="1.1.0",
 )
+
+
+def record_audit(
+    db: Session,
+    user_id: int,
+    action: str,
+    resource_id: int,
+    details: str,
+    request: Request,
+):
+    try:
+        audit = AuditLog(
+            user_id=user_id,
+            action=action,
+            resource_type="review",
+            resource_id=str(resource_id),
+            status="success",
+            details=details,
+            ip_address=request.client.host if request.client else None,
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error("Review audit logging failed: %s", type(exc).__name__)
 
 
 @app.get("/health")
 def health():
-    return {
-        "status": "healthy",
-        "service": "review-service",
-    }
+    return {"status": "healthy", "service": "review-service"}
 
 
 @app.post(
@@ -33,6 +59,7 @@ def health():
 )
 def create_review(
     review_data: ReviewCreate,
+    request: Request,
     user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -72,6 +99,15 @@ def create_review(
             detail="A review for this product already exists",
         )
 
+    record_audit(
+        db,
+        user_id,
+        "review_created",
+        review.id,
+        f"Created review for product {review.product_id}, rating {review.rating}",
+        request,
+    )
+
     return review
 
 
@@ -88,10 +124,8 @@ def list_reviews(
 
     if product_id is not None:
         query = query.filter(Review.product_id == product_id)
-
     if user_id is not None:
         query = query.filter(Review.user_id == user_id)
-
     if rating is not None:
         query = query.filter(Review.rating == rating)
 
@@ -104,10 +138,7 @@ def list_reviews(
 
 
 @app.get("/reviews/summary/{product_id}")
-def get_review_summary(
-    product_id: int,
-    db: Session = Depends(get_db),
-):
+def get_review_summary(product_id: int, db: Session = Depends(get_db)):
     if product_id <= 0:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -121,11 +152,7 @@ def get_review_summary(
     )
 
     total_reviews = result[0] or 0
-    average_rating = (
-        round(float(result[1]), 2)
-        if result[1] is not None
-        else 0.0
-    )
+    average_rating = round(float(result[1]), 2) if result[1] is not None else 0.0
 
     return {
         "product_id": product_id,
@@ -135,10 +162,7 @@ def get_review_summary(
 
 
 @app.get("/reviews/{review_id}", response_model=ReviewResponse)
-def get_review(
-    review_id: int,
-    db: Session = Depends(get_db),
-):
+def get_review(review_id: int, db: Session = Depends(get_db)):
     review = db.query(Review).filter(Review.id == review_id).first()
 
     if review is None:
@@ -154,6 +178,7 @@ def get_review(
 def update_review(
     review_id: int,
     review_data: ReviewUpdate,
+    request: Request,
     user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -193,12 +218,22 @@ def update_review(
             detail="Could not update review",
         )
 
+    record_audit(
+        db,
+        user["user_id"],
+        "review_updated",
+        review.id,
+        f"Updated review for product {review.product_id}",
+        request,
+    )
+
     return review
 
 
 @app.delete("/reviews/{review_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_review(
     review_id: int,
+    request: Request,
     user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -217,7 +252,19 @@ def delete_review(
             detail="Review not found",
         )
 
+    review_id_value = review.id
+    product_id = review.product_id
+
     db.delete(review)
     db.commit()
+
+    record_audit(
+        db,
+        user["user_id"],
+        "review_deleted",
+        review_id_value,
+        f"Deleted review for product {product_id}",
+        request,
+    )
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)

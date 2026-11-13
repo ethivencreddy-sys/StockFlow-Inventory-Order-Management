@@ -4,12 +4,12 @@ import os
 import json
 import httpx
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session, selectinload
 
-from app.database import get_db
-from app.models import Order, OrderItem, OutboxEvent
+from app.database import Base, engine, get_db
+from app.models import AuditLog, Order, OrderItem, OutboxEvent
 from app.schemas import (
     OrderCreate,
     OrderResponse,
@@ -18,6 +18,8 @@ from app.schemas import (
 )
 from app.security import require_roles
 
+
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="StockFlow Order Service")
 
@@ -29,6 +31,40 @@ INVENTORY_SERVICE_URL = os.getenv(
 )
 
 INVENTORY_TIMEOUT = 10.0
+
+
+def record_audit(
+    db: Session,
+    request: Request,
+    user_id: int,
+    action: str,
+    resource_id: str,
+    details: str,
+):
+    """Record a successful order-related operation."""
+
+    try:
+        audit = AuditLog(
+            user_id=user_id,
+            action=action,
+            resource_type="order",
+            resource_id=str(resource_id),
+            status="success",
+            details=details[:500],
+            ip_address=(
+                request.client.host if request.client else None
+            ),
+        )
+
+        db.add(audit)
+        db.commit()
+
+    except Exception as exc:
+        db.rollback()
+        print(
+            f"Audit logging failed: {type(exc).__name__}",
+            flush=True,
+        )
 
 
 @app.get("/health")
@@ -43,6 +79,7 @@ def health():
 )
 def create_order(
     order_data: OrderCreate,
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
     user: dict = Depends(require_roles("administrator", "customer")),
@@ -150,6 +187,16 @@ def create_order(
         db.commit()
         db.refresh(order)
 
+        record_audit(
+            db,
+            request,
+            user["user_id"],
+            "order_created",
+            str(order.id),
+            f"Created order {order.order_reference} "
+            f"with total {order.total_amount}",
+        )
+
         return (
             db.query(Order)
             .options(selectinload(Order.items))
@@ -250,6 +297,7 @@ def get_order(
 def update_order_status(
     order_id: int,
     status_data: OrderStatusUpdate,
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
     admin: dict = Depends(require_roles("administrator")),
@@ -271,6 +319,7 @@ def update_order_status(
         )
 
     new_status = status_data.status
+    previous_status = order.status
 
     if new_status == "cancelled":
         if order.payment_status == "paid":
@@ -334,6 +383,15 @@ def update_order_status(
     order.status = new_status
     db.commit()
 
+    record_audit(
+        db,
+        request,
+        admin["user_id"],
+        "order_status_updated",
+        str(order.id),
+        f"Order status changed from {previous_status} to {new_status}",
+    )
+
     return (
         db.query(Order)
         .options(selectinload(Order.items))
@@ -349,6 +407,7 @@ def update_order_status(
 def update_payment_status(
     order_id: int,
     payment_data: OrderPaymentSync,
+    request: Request,
     db: Session = Depends(get_db),
     admin: dict = Depends(require_roles("administrator")),
 ):
@@ -390,6 +449,8 @@ def update_payment_status(
                 ),
             )
 
+    previous_payment_status = order.payment_status
+
     order.payment_status = payment_data.payment_status
 
     if (
@@ -400,6 +461,16 @@ def update_payment_status(
 
     db.commit()
     db.refresh(order)
+
+    record_audit(
+        db,
+        request,
+        admin["user_id"],
+        "order_payment_status_updated",
+        str(order.id),
+        f"Payment status changed from {previous_payment_status} "
+        f"to {payment_data.payment_status}",
+    )
 
     return (
         db.query(Order)

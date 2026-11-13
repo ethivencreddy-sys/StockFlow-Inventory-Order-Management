@@ -2,7 +2,7 @@
 import httpx
 
 
-BASE_URL = "http://127.0.0.1:8002"
+BASE_URL = "http://127.0.0.1:8012"
 
 
 def test_list_products_returns_active_products():

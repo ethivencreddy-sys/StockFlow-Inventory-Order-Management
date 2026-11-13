@@ -1,4 +1,4 @@
-﻿
+
 services:
   auth-service:
     build: ./services/auth-service
@@ -19,6 +19,10 @@ services:
     container_name: stockflow-product
     ports:
       - "8012:8002"
+    environment:
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:?Set AUTH_SECRET_KEY in .env}
+      DATABASE_URL: sqlite:////app/data/products.db
+      INVENTORY_SERVICE_URL: http://stockflow-inventory:8003
     volumes:
       - ./services/product-service:/app/data
     networks:
@@ -31,6 +35,7 @@ services:
     ports:
       - "8013:8003"
     environment:
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:?Set AUTH_SECRET_KEY in .env}
       DATABASE_URL: sqlite:////app/data/inventory.db
     volumes:
       - ./services/inventory-service:/app/data
@@ -44,7 +49,10 @@ services:
     ports:
       - "8014:8004"
     environment:
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:?Set AUTH_SECRET_KEY in .env}
       DATABASE_URL: sqlite:////app/data/cart.db
+      PRODUCT_SERVICE_URL: http://stockflow-product:8002
+      INVENTORY_SERVICE_URL: http://stockflow-inventory:8003
     volumes:
       - ./services/cart-service:/app/data
     networks:
@@ -74,9 +82,9 @@ services:
     container_name: stockflow-order-worker
     command: ["python", "-m", "app.worker"]
     environment:
-          DATABASE_URL: sqlite:////app/data/orders.db
-          AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:?Set AUTH_SECRET_KEY in .env}
-          RABBITMQ_URL: amqp://stockflow:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in .env}@stockflow-rabbitmq:5672/%2F
+      DATABASE_URL: sqlite:////app/data/orders.db
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:?Set AUTH_SECRET_KEY in .env}
+      RABBITMQ_URL: amqp://stockflow:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in .env}@stockflow-rabbitmq:5672/%2F
     volumes:
       - ./services/order-service:/app/data
     depends_on:
@@ -92,6 +100,7 @@ services:
     ports:
       - "8016:8006"
     environment:
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:?Set AUTH_SECRET_KEY in .env}
       DATABASE_URL: sqlite:////app/data/payments.db
     volumes:
       - ./services/payment-service:/app/data
@@ -105,6 +114,7 @@ services:
     ports:
       - "8017:8007"
     environment:
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:?Set AUTH_SECRET_KEY in .env}
       DATABASE_URL: sqlite:////app/data/notifications.db
     volumes:
       - ./services/notification-service:/app/data
@@ -118,6 +128,7 @@ services:
     ports:
       - "8018:8008"
     environment:
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:?Set AUTH_SECRET_KEY in .env}
       DATABASE_URL: sqlite:////app/data/reviews.db
     volumes:
       - ./services/review-service:/app/data
@@ -144,6 +155,8 @@ services:
     ports:
       - "8020:8010"
     environment:
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:?Set AUTH_SECRET_KEY in .env}
+      DATABASE_URL: sqlite:////app/data/analytics.db
       ANALYTICS_TOKEN_FILE: /app/data/.analytics_token
       API_GATEWAY_URL: http://stockflow-gateway:8000
       ORDER_SERVICE_URL: http://stockflow-order:8005
@@ -161,6 +174,7 @@ services:
     ports:
       - "8021:8011"
     environment:
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:?Set AUTH_SECRET_KEY in .env}
       DATABASE_URL: sqlite:////app/data/returns.db
     volumes:
       - ./services/return-service/data:/app/data
@@ -242,7 +256,6 @@ networks:
   stockflow-network:
     external: true
     name: stockflow-network
-
 
 volumes:
   rabbitmq_data:

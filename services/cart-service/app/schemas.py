@@ -26,6 +26,7 @@ class CartSummary(BaseModel):
     user_id: int
     items: list[CartItemResponse]
     total_items: int
+    total_amount: float
 
 
 class WishlistItemCreate(BaseModel):

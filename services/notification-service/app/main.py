@@ -1,11 +1,11 @@
 
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine, get_db
-from app.models import Notification
+from app.models import AuditLog, Notification
 from app.schemas import (
     NotificationCreate,
     NotificationResponse,
@@ -13,13 +13,49 @@ from app.schemas import (
 )
 from app.security import get_current_user, require_roles
 
+
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
     title="Notification Service",
     description="Create, retrieve, and manage user notifications",
-    version="1.0.0",
+    version="1.1.0",
 )
+
+
+def record_audit(
+    db: Session,
+    user_id: int | None,
+    action: str,
+    resource_id: int | str | None,
+    details: str,
+    request: Request,
+) -> None:
+    """Record audit activity without interrupting notification operations."""
+    try:
+        forwarded_for = request.headers.get("x-forwarded-for")
+        ip_address = (
+            forwarded_for.split(",")[0].strip()
+            if forwarded_for
+            else (request.client.host if request.client else None)
+        )
+
+        audit = AuditLog(
+            user_id=user_id,
+            action=action,
+            resource_type="notification",
+            resource_id=str(resource_id) if resource_id is not None else None,
+            status="success",
+            details=details[:500],
+            ip_address=ip_address,
+        )
+
+        db.add(audit)
+        db.commit()
+
+    except Exception as exc:
+        db.rollback()
+        print(f"Audit logging failed: {type(exc).__name__}")
 
 
 @app.get("/health")
@@ -37,6 +73,7 @@ def health():
 )
 def create_notification(
     notification_data: NotificationCreate,
+    request: Request,
     user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -52,6 +89,15 @@ def create_notification(
     db.add(notification)
     db.commit()
     db.refresh(notification)
+
+    record_audit(
+        db=db,
+        user_id=user["user_id"],
+        action="notification_created",
+        resource_id=notification.id,
+        details=f"Created notification: {notification.title}",
+        request=request,
+    )
 
     return notification
 
@@ -116,6 +162,7 @@ def get_notification(
 def update_notification_status(
     notification_id: int,
     status_data: NotificationStatusUpdate,
+    request: Request,
     user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -133,6 +180,8 @@ def update_notification_status(
             status_code=404,
             detail="Notification not found",
         )
+
+    previous_status = notification.status
 
     notification.status = status_data.status
     notification.read_at = (
@@ -144,12 +193,25 @@ def update_notification_status(
     db.commit()
     db.refresh(notification)
 
+    record_audit(
+        db=db,
+        user_id=user["user_id"],
+        action="notification_status_updated",
+        resource_id=notification.id,
+        details=(
+            f"Notification status changed from "
+            f"{previous_status} to {notification.status}"
+        ),
+        request=request,
+    )
+
     return notification
 
 
 @app.delete("/notifications/{notification_id}", status_code=204)
 def delete_notification(
     notification_id: int,
+    request: Request,
     user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -168,7 +230,18 @@ def delete_notification(
             detail="Notification not found",
         )
 
+    notification_title = notification.title
+
     db.delete(notification)
     db.commit()
+
+    record_audit(
+        db=db,
+        user_id=user["user_id"],
+        action="notification_deleted",
+        resource_id=notification_id,
+        details=f"Deleted notification: {notification_title}",
+        request=request,
+    )
 
     return Response(status_code=204)

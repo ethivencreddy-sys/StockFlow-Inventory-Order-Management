@@ -1,4 +1,4 @@
-# StockFlow – Inventory and Order Management System
+# StockFlow â€“ Inventory and Order Management System
 
 StockFlow is a microservices-based inventory and order management platform built using Python, FastAPI, React, SQLite, Docker, RabbitMQ, and Redis.
 
@@ -74,27 +74,27 @@ API Gateway: http://localhost:8022
 
 ```text
 inventory-order-management/
-├── api-gateway/
-├── frontend/
-├── services/
-│   ├── analytics-service/
-│   ├── auth-service/
-│   ├── cart-service/
-│   ├── coupon-service/
-│   ├── inventory-service/
-│   ├── notification-service/
-│   ├── order-service/
-│   ├── payment-service/
-│   ├── product-service/
-│   ├── return-service/
-│   └── review-service/
-├── tests/
-├── docs/
-├── docker-compose.yml
-├── requirements.txt
-├── .env.example
-├── .gitignore
-└── README.md
+â”œâ”€â”€ api-gateway/
+â”œâ”€â”€ frontend/
+â”œâ”€â”€ services/
+â”‚   â”œâ”€â”€ analytics-service/
+â”‚   â”œâ”€â”€ auth-service/
+â”‚   â”œâ”€â”€ cart-service/
+â”‚   â”œâ”€â”€ coupon-service/
+â”‚   â”œâ”€â”€ inventory-service/
+â”‚   â”œâ”€â”€ notification-service/
+â”‚   â”œâ”€â”€ order-service/
+â”‚   â”œâ”€â”€ payment-service/
+â”‚   â”œâ”€â”€ product-service/
+â”‚   â”œâ”€â”€ return-service/
+â”‚   â””â”€â”€ review-service/
+â”œâ”€â”€ tests/
+â”œâ”€â”€ docs/
+â”œâ”€â”€ docker-compose.yml
+â”œâ”€â”€ requirements.txt
+â”œâ”€â”€ .env.example
+â”œâ”€â”€ .gitignore
+â””â”€â”€ README.md
 ```
 
 ## Prerequisites
@@ -173,5 +173,9 @@ The current automated test suite contains 24 tests, all of which passed in the l
 - Service-level health endpoints
 
 ## Project Status
-
-The Docker Compose environment, frontend, backend services, Redis, RabbitMQ, and API Gateway have been
+The Docker Compose environment includes 11 microservices, an API Gateway, a React frontend, RabbitMQ, Redis, and an order-processing worker.
+The latest verification completed successfully:
+- 24 automated tests passed.
+- React production build passed.
+- All 16 Docker containers were running.
+- RabbitMQ and Redis reported healthy status.

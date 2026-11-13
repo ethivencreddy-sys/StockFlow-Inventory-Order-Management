@@ -2,7 +2,7 @@
 import httpx
 
 
-BASE_URL = "http://127.0.0.1:8009"
+BASE_URL = "http://127.0.0.1:8019"
 
 
 def test_coupon_health_endpoint():

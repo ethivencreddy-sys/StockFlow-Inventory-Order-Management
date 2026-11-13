@@ -1,4 +1,3 @@
-
 from datetime import datetime
 from typing import Literal
 
@@ -13,7 +12,7 @@ class PaymentCreate(BaseModel):
 
 
 class PaymentStatusUpdate(BaseModel):
-    status: Literal["pending", "succeeded", "failed", "refunded"]
+    status: Literal["succeeded", "failed", "cancelled"]
 
 
 class PaymentResponse(BaseModel):

@@ -1,13 +1,14 @@
 
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
+import logging
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import Base, engine, get_db
-from app.models import Coupon, CouponRedemption
+from app.models import Coupon, CouponRedemption, AuditLog
 from app.schemas import (
     CouponCreate,
     CouponRedeem,
@@ -18,11 +19,39 @@ from app.schemas import (
 
 Base.metadata.create_all(bind=engine)
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 app = FastAPI(
     title="StockFlow Coupon Service",
     description="Create, validate, and redeem discount coupons.",
-    version="1.0.0",
+    version="1.1.0",
 )
+
+
+def record_audit(
+    db: Session,
+    user_id: int | None,
+    action: str,
+    resource_id: int,
+    details: str,
+    request: Request,
+):
+    try:
+        audit = AuditLog(
+            user_id=user_id,
+            action=action,
+            resource_type="coupon",
+            resource_id=str(resource_id),
+            status="success",
+            details=details,
+            ip_address=request.client.host if request.client else None,
+        )
+        db.add(audit)
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error("Coupon audit logging failed: %s", type(exc).__name__)
 
 
 def calculate_discount(
@@ -118,6 +147,7 @@ def health():
 )
 def create_coupon(
     payload: CouponCreate,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     if payload.expires_at is not None and payload.expires_at <= datetime.utcnow():
@@ -132,7 +162,6 @@ def create_coupon(
         db.add(coupon)
         db.commit()
         db.refresh(coupon)
-        return coupon
     except IntegrityError:
         db.rollback()
         raise HTTPException(
@@ -140,19 +169,25 @@ def create_coupon(
             detail="A coupon with this code already exists.",
         )
 
+    record_audit(
+        db,
+        None,
+        "coupon_created",
+        coupon.id,
+        f"Created coupon: {coupon.code}",
+        request,
+    )
+
+    return coupon
+
 
 @app.get("/coupons", response_model=list[CouponResponse])
-def list_coupons(
-    db: Session = Depends(get_db),
-):
+def list_coupons(db: Session = Depends(get_db)):
     return db.query(Coupon).order_by(Coupon.id.desc()).all()
 
 
 @app.get("/coupons/{code}", response_model=CouponResponse)
-def get_coupon(
-    code: str,
-    db: Session = Depends(get_db),
-):
+def get_coupon(code: str, db: Session = Depends(get_db)):
     coupon = (
         db.query(Coupon)
         .filter(Coupon.code == code.strip().upper())
@@ -192,6 +227,7 @@ def validate_coupon(
 @app.post("/coupons/redeem", response_model=CouponValidationResponse)
 def redeem_coupon(
     payload: CouponRedeem,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     try:
@@ -215,6 +251,19 @@ def redeem_coupon(
         coupon.usage_count += 1
         db.add(redemption)
         db.commit()
+        db.refresh(redemption)
+
+        record_audit(
+            db,
+            payload.user_id,
+            "coupon_redeemed",
+            coupon.id,
+            (
+                f"Redeemed coupon {coupon.code} for order "
+                f"{payload.order_id}, discount {discount}"
+            ),
+            request,
+        )
 
         return CouponValidationResponse(
             valid=True,

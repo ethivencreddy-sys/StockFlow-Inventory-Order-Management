@@ -1,4 +1,3 @@
-
 from datetime import datetime, timezone
 
 from sqlalchemy import (
@@ -34,8 +33,13 @@ class StockReservation(Base):
     id = Column(Integer, primary_key=True, index=True)
     reservation_code = Column(String(64), unique=True, index=True, nullable=False)
     order_reference = Column(String(100), nullable=False, index=True)
-    product_id = Column(Integer, ForeignKey("inventory.product_id"), nullable=False)
+    product_id = Column(
+        Integer,
+        ForeignKey("inventory.product_id"),
+        nullable=False,
+    )
     quantity = Column(Integer, nullable=False)
+    released_quantity = Column(Integer, nullable=False, default=0)
     status = Column(String(20), nullable=False, default="reserved")
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=utc_now, nullable=False)
@@ -52,4 +56,22 @@ class InventoryTransaction(Base):
     created_at = Column(DateTime, default=utc_now, nullable=False)
 
 
-Index("ix_reservation_product_status", StockReservation.product_id, StockReservation.status)
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True, index=True)
+    action = Column(String(100), nullable=False, index=True)
+    resource_type = Column(String(100), nullable=False)
+    resource_id = Column(String(100), nullable=True)
+    status = Column(String(20), nullable=False)
+    details = Column(String(500), nullable=True)
+    ip_address = Column(String(45), nullable=True)
+    created_at = Column(DateTime, default=utc_now, nullable=False, index=True)
+
+
+Index(
+    "ix_reservation_product_status",
+    StockReservation.product_id,
+    StockReservation.status,
+)

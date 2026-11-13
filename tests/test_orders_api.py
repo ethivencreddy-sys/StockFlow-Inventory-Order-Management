@@ -2,7 +2,7 @@
 import httpx
 
 
-BASE_URL = "http://127.0.0.1:8005"
+BASE_URL = "http://127.0.0.1:8015"
 
 
 def test_list_orders_requires_authentication():
