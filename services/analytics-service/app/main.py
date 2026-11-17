@@ -3,13 +3,18 @@ import io
 import os
 import logging
 from pathlib import Path
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from app.database import init_db
 from app.audit import get_user_id, record_audit
+from io import BytesIO
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 logger = logging.getLogger(__name__)
 app = FastAPI(
     title="StockFlow Analytics Service",
@@ -370,10 +375,7 @@ def export_sales_csv(
         },
     )
 
-# --------------------------------------------------
-# ADDITIONAL ANALYTICS REPORTS
-# --------------------------------------------------
-from datetime import timedelta
+
 def sales_report_by_period(
     orders: list[dict],
     period: str,
@@ -397,10 +399,14 @@ def sales_report_by_period(
             order_date = date.fromisoformat(str(raw_date)[:10])
         except (ValueError, TypeError):
             continue
-        if period == "weekly":
-            key = (order_date - timedelta(days=order_date.weekday())).isoformat()
+        if period == "daily":
+          key = order_date.isoformat()
+        elif period == "weekly":
+          key = (order_date - timedelta(days=order_date.weekday())).isoformat()
+        elif period == "monthly":
+          key = order_date.strftime("%Y-%m")
         else:
-            key = order_date.strftime("%Y-%m")
+          raise ValueError("Period must be daily, weekly, or monthly")
         amount = to_decimal(
             order.get("total_amount")
             or order.get("total")
@@ -571,4 +577,107 @@ def return_rate(request: Request):
         "analytics_return_rate_generated",
         f"Calculated return rate for {total_orders} orders",
     )
+
     return result
+@app.get("/analytics/export/pdf")
+def export_sales_pdf(
+    request: Request,
+    period: str = Query("monthly", pattern="^(daily|weekly|monthly)$"),
+    start_date: date | None = Query(None),
+    end_date: date | None = Query(None),
+):
+    authorization = request.headers.get("authorization")
+    orders = fetch_orders(authorization)
+
+    report_data = sales_report_by_period(
+        orders,
+        period,
+        start_date,
+        end_date,
+    )
+
+    buffer = BytesIO()
+    document = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=40,
+        leftMargin=40,
+        topMargin=40,
+        bottomMargin=40,
+    )
+
+    styles = getSampleStyleSheet()
+    content = []
+
+    content.append(
+        Paragraph("StockFlow Sales Report", styles["Title"])
+    )
+    content.append(Spacer(1, 12))
+
+    content.append(
+        Paragraph(
+            f"Report Period: {period.capitalize()}",
+            styles["Heading2"],
+        )
+    )
+
+    date_range = (
+        f"Date Range: {start_date or 'All'} to {end_date or 'All'}"
+    )
+    content.append(Paragraph(date_range, styles["Normal"]))
+    content.append(Spacer(1, 20))
+
+    table_data = [["Period", "Sales Amount"]]
+
+    for item in report_data:
+        table_data.append([
+            str(item["period"]),
+            str(item["sales"]),
+        ])
+
+    if not report_data:
+        table_data.append(["No data", "0"])
+
+    report_table = Table(
+        table_data,
+        colWidths=[230, 230],
+    )
+
+    report_table.setStyle(
+        TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E78")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("PADDING", (0, 0), (-1, -1), 8),
+            ("ALIGN", (1, 1), (1, -1), "RIGHT"),
+        ])
+    )
+
+    content.append(report_table)
+    content.append(Spacer(1, 20))
+
+    content.append(
+        Paragraph(
+            f"Total Report Entries: {len(report_data)}",
+            styles["Normal"],
+        )
+    )
+
+    document.build(content)
+    buffer.seek(0)
+
+    audit_request(
+        request,
+        "analytics_pdf_exported",
+        f"Exported {period} sales PDF with {len(report_data)} entries",
+    )
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition":
+                "attachment; filename=stockflow_sales_report.pdf"
+        },
+    )

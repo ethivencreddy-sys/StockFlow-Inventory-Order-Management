@@ -138,6 +138,9 @@ docker compose ps
 docker compose logs -f
 ```
 
+
 ### 4. Stop the application
 
 ```powershell
+docker compose down
+```

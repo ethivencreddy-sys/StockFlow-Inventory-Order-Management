@@ -3,3 +3,5 @@ uvicorn==0.54.0
 SQLAlchemy==2.0.55
 httpx==0.28.1
 PyJWT==2.10.1
+
+reportlab==4.4.4
