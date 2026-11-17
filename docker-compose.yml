@@ -142,6 +142,7 @@ services:
     ports:
       - "8019:8009"
     environment:
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:?Set AUTH_SECRET_KEY in .env}
       DATABASE_URL: sqlite:////app/data/coupons.db
     volumes:
       - ./services/coupon-service:/app/data

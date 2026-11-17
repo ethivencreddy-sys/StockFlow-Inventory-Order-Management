@@ -65,6 +65,7 @@ function App() {
   const [products, setProducts] = useState([])
   const [inventory, setInventory] = useState([])
   const [orders, setOrders] = useState([])
+  const [payments, setPayments] = useState([])
   const [cart, setCart] = useState([])
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -97,6 +98,8 @@ function App() {
     useState(null)
   const [transactionLoading, setTransactionLoading] = useState(false)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
+  const [paymentLoadingOrderId, setPaymentLoadingOrderId] = useState(null)
+  const [paymentActionId, setPaymentActionId] = useState(null)
 
   const [shippingAddress, setShippingAddress] = useState(
     'Anantapur, Andhra Pradesh, India',
@@ -132,12 +135,13 @@ function App() {
 
     setDataLoading(true)
 
-    const [productResult, inventoryResult, orderResult, cartResult] =
+    const [productResult, inventoryResult, orderResult, cartResult, paymentResult] =
       await Promise.allSettled([
         apiRequest('/products'),
         apiRequest('/inventory'),
         apiRequest('/orders'),
         apiRequest('/cart'),
+        apiRequest('/payments'),
       ])
 
     if (productResult.status === 'fulfilled') {
@@ -156,6 +160,12 @@ function App() {
 
     if (cartResult.status === 'fulfilled') {
       setCart(asList(cartResult.value))
+    }
+
+    if (paymentResult.status === 'fulfilled') {
+      setPayments(asList(paymentResult.value))
+    } else {
+      setPayments([])
     }
 
     setDataLoading(false)
@@ -217,6 +227,7 @@ function App() {
     setProducts([])
     setInventory([])
     setOrders([])
+    setPayments([])
     setCart([])
     setPage('dashboard')
     setMessage('')
@@ -487,6 +498,62 @@ function App() {
   const cartHasUnknownPrice = cartRows.some(
     (item) => item.subtotal == null,
   )
+
+  async function createPayment(order, paymentMethod) {
+    if (!order || Number(order.total_amount) <= 0) {
+      setMessage('This order does not have a valid payment amount.')
+      return
+    }
+
+    const existingPending = payments.find(
+      (payment) => Number(payment.order_id) === Number(order.id) && payment.status === 'pending',
+    )
+    if (existingPending) {
+      setMessage(`A pending payment (#${existingPending.id}) already exists for Order #${order.id}. An administrator can review it below.`)
+      return
+    }
+
+    setPaymentLoadingOrderId(order.id)
+    setMessage('')
+    try {
+      const payment = await apiRequest('/payments', {
+        method: 'POST',
+        body: JSON.stringify({
+          order_id: Number(order.id),
+          amount: Number(order.total_amount),
+          currency: 'INR',
+          payment_method: paymentMethod,
+        }),
+      })
+      await loadWorkspace()
+      setMessage(`Payment #${payment.id} created for Order #${order.id}. It is pending administrator approval in this development simulation; no money has been collected.`)
+    } catch (error) {
+      setMessage(`Could not create payment: ${error.message}`)
+    } finally {
+      setPaymentLoadingOrderId(null)
+    }
+  }
+
+  async function approveDevelopmentPayment(payment) {
+    if (!isAdmin) {
+      setMessage('Only administrators can approve simulated payments.')
+      return
+    }
+    setPaymentActionId(payment.id)
+    setMessage('')
+    try {
+      await apiRequest(`/payments/${payment.id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'succeeded' }),
+      })
+      await loadWorkspace()
+      setMessage(`Development payment #${payment.id} marked successful. Order #${payment.order_id} should now show as paid. No real payment was processed.`)
+    } catch (error) {
+      setMessage(`Could not approve payment: ${error.message}`)
+    } finally {
+      setPaymentActionId(null)
+    }
+  }
 
   async function checkout() {
     if (!cartRows.length) {
@@ -1364,6 +1431,15 @@ function App() {
               </div>
 
               <OrderTable orders={orders} />
+              <PaymentPanel
+                orders={orders}
+                payments={payments}
+                isAdmin={isAdmin}
+                paymentLoadingOrderId={paymentLoadingOrderId}
+                paymentActionId={paymentActionId}
+                onCreatePayment={createPayment}
+                onApprovePayment={approveDevelopmentPayment}
+              />
             </div>
           )}
         </section>
@@ -1489,6 +1565,125 @@ function OrderTable({ orders }) {
       {orders.length === 0 && (
         <EmptyState text="No orders to display yet." />
       )}
+    </div>
+  )
+}
+
+function PaymentPanel({
+  orders,
+  payments,
+  isAdmin,
+  paymentLoadingOrderId,
+  paymentActionId,
+  onCreatePayment,
+  onApprovePayment,
+}) {
+  const [methods, setMethods] = useState({})
+  const pendingForOrder = (orderId) => payments.find(
+    (payment) => Number(payment.order_id) === Number(orderId) && payment.status === 'pending',
+  )
+  const unpaidOrders = orders.filter(
+    (order) => !['paid', 'refunded'].includes(String(order.payment_status || 'unpaid').toLowerCase()) &&
+      String(order.status || '').toLowerCase() !== 'cancelled',
+  )
+
+  return (
+    <div className="payment-panel-stack">
+      <section className="payment-panel">
+        <div className="section-header">
+          <div>
+            <h3>Make a payment</h3>
+            <p>Choose a method to create a payment request for an unpaid order.</p>
+          </div>
+        </div>
+        <p className="payment-development-note">
+          Development simulation only. Creating a payment request does not charge money. An administrator must approve it.
+        </p>
+        {unpaidOrders.length === 0 ? (
+          <EmptyState text="There are no unpaid orders requiring payment." />
+        ) : (
+          <div className="payment-order-list">
+            {unpaidOrders.map((order) => {
+              const existing = pendingForOrder(order.id)
+              const method = methods[order.id] || 'upi'
+              return (
+                <div className="payment-order-row" key={order.id}>
+                  <div className="payment-order-info">
+                    <strong>Order #{order.id}</strong>
+                    <span>{money(order.total_amount)} · {order.payment_status || 'unpaid'}</span>
+                    {existing && <small>Pending payment #{existing.id} · {existing.payment_method}</small>}
+                  </div>
+                  {!existing && (
+                    <div className="payment-order-controls">
+                      <select
+                        aria-label={`Payment method for order ${order.id}`}
+                        value={method}
+                        onChange={(event) => setMethods((current) => ({ ...current, [order.id]: event.target.value }))}
+                      >
+                        <option value="upi">UPI</option>
+                        <option value="card">Card</option>
+                        <option value="net_banking">Net banking</option>
+                      </select>
+                      <button
+                        className="submit-button payment-create-button"
+                        disabled={paymentLoadingOrderId === order.id}
+                        onClick={() => onCreatePayment(order, method)}
+                      >
+                        {paymentLoadingOrderId === order.id ? 'Creating…' : 'Create payment'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
+
+      <section className="payment-panel">
+        <div className="section-header">
+          <div>
+            <h3>{isAdmin ? 'Payment approvals' : 'My payment requests'}</h3>
+            <p>{isAdmin ? 'Review pending development payments and approve successful simulations.' : 'Track payment requests associated with your account.'}</p>
+          </div>
+        </div>
+        {isAdmin && <p className="payment-development-note">Administrator approval marks the payment as successful for testing only. It does not verify or collect a real payment.</p>}
+        {payments.length === 0 ? (
+          <EmptyState text="No payment records found." />
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Payment</th><th>Order</th><th>Amount</th><th>Method</th><th>Status</th>{isAdmin && <th>Action</th>}</tr>
+              </thead>
+              <tbody>
+                {payments.map((payment) => (
+                  <tr key={payment.id}>
+                    <td>#{payment.id}</td>
+                    <td>#{payment.order_id}</td>
+                    <td>{money(payment.amount)}</td>
+                    <td>{String(payment.payment_method || '').replace('_', ' ')}</td>
+                    <td><span className="pill neutral">{payment.status}</span></td>
+                    {isAdmin && (
+                      <td>
+                        {payment.status === 'pending' ? (
+                          <button
+                            className="submit-button payment-approve-button"
+                            disabled={paymentActionId === payment.id}
+                            onClick={() => onApprovePayment(payment)}
+                          >
+                            {paymentActionId === payment.id ? 'Approving…' : 'Approve simulation'}
+                          </button>
+                        ) : '—'}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   )
 }

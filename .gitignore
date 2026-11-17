@@ -58,3 +58,22 @@ htmlcov/
 /services/order-service/app/*_before_*.py
 /services/return-service/Dockerfile.txt
 /backups/
+
+# StockFlow local audit and temporary files
+check_*_audit.py
+check_*_db.py
+coupon-security-backup-*/
+*.before-payment
+*.before-polish
+*_before_*.py
+
+# Generated test and report files
+product_import_test.csv
+return-openapi.json
+sales_report.csv
+
+# Accidental terminal output
+t *
+
+# Local token file
+/_token
